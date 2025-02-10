@@ -29,9 +29,9 @@ pipeline {
         stage('Static Test') {
             steps {
                 script {
+                    // Instalar flake8 y bandit y actualizar el PATH para que se encuentren los ejecutables
                     sh """
                         pip install flake8 bandit
-                        # Agregar el directorio donde se instalan los ejecutables de usuario al PATH
                         export PATH=\$PATH:\$HOME/.local/bin
                         mkdir -p reports
                         flake8 src --output-file=reports/flake8_report.txt || true
@@ -39,6 +39,9 @@ pipeline {
                         touch reports/dummy.txt
                     """
                     sh "ls -la reports/"
+                    // Imprimir el contenido de los reportes en la consola
+                    sh "echo 'Contenido de flake8_report.txt:'; cat reports/flake8_report.txt || true"
+                    sh "echo 'Contenido de bandit_report.json:'; cat reports/bandit_report.json || true"
                 }
             }
             post {
@@ -93,7 +96,7 @@ pipeline {
             steps {
                 script {
                     echo 'Obteniendo URL de la API desplegada...'
-                    // Se busca BaseUrlApi en lugar de ApiGatewayInvokeURL
+                    // Se extrae la URL usando la salida de CloudFormation
                     def apiUrl = sh(script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}", returnStdout: true).trim()
                     if (!apiUrl || apiUrl == "None") {
                         error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
@@ -110,7 +113,7 @@ pipeline {
                     if (!env.API_URL) {
                         error("No se pudo obtener la URL de la API. Fallando el pipeline.")
                     }
-                    // Quitar la barra final en caso de existir
+                    // Quitar la barra final, en caso de existir
                     def apiBaseUrl = env.API_URL.endsWith("/") ? env.API_URL.dropRight(1) : env.API_URL
 
                     sh """
