@@ -5,7 +5,7 @@ pipeline {
         AWS_REGION          = 'us-east-1'
         APP_NAME            = 'todolist'
         REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
-        // Para producción, usamos un stack distinto (por ejemplo, "todolist-production")
+        // Para producción usamos un nombre de stack distinto
         STACK_NAME          = 'todolist-production'
         S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
         TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
@@ -18,7 +18,7 @@ pipeline {
             steps {
                 script {
                     echo "Descargando el código de la rama master..."
-                    // Verificamos si el workspace ya es un repositorio git
+                    // Si no existe el repositorio en el workspace, clónalo; de lo contrario, actualízalo.
                     if (!fileExists('.git')) {
                         echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
@@ -67,33 +67,42 @@ pipeline {
             steps {
                 script {
                     echo "Obteniendo la URL de la API de producción..."
-                    def apiUrl = sh(script: """
-                        aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
-                        --query "Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue" \\
-                        --output text --region ${AWS_REGION}
-                    """, returnStdout: true).trim()
-                    
+                    // Extrae la URL Base de la API desde los outputs de CloudFormation
+                    def apiUrl = sh(
+                        script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}",
+                        returnStdout: true
+                    ).trim()
+
                     if (!apiUrl || apiUrl == "None") {
                         error("No se pudo obtener la URL de la API de producción.")
                     }
-                    
                     echo "API URL obtenida: ${apiUrl}"
                     env.API_URL = apiUrl
 
-                    // Ejecutar únicamente pruebas de lectura para no modificar datos
+                    // Genera un reporte de las pruebas REST (solo de lectura)
                     sh """
-                        echo "Ejecutando pruebas REST de solo lectura en producción..."
-                        
-                        echo "1) GET /todos"
+                        mkdir -p reports
+                        echo "Ejecutando pruebas REST de solo lectura en producción..." > reports/rest_test_report.txt
+
+                        echo "1) GET /todos" >> reports/rest_test_report.txt
                         response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiUrl}/todos)
-                        echo "Código de respuesta GET /todos: \$response"
-                        if [ "\$response" -ne 200 ]; then
-                            echo "Error en GET /todos"
+                        echo "Código de respuesta GET /todos: \$response" >> reports/rest_test_report.txt
+                        if [ "\$response" -ne 200 ]; then 
+                            echo "Error en GET /todos" >> reports/rest_test_report.txt
                             exit 1
                         fi
-                        
-                        echo "Pruebas REST de solo lectura completadas correctamente."
+
+                        echo "Pruebas REST de solo lectura completadas correctamente." >> reports/rest_test_report.txt
+
+                        # Imprime el reporte en la consola para evidenciar la ejecución
+                        cat reports/rest_test_report.txt
                     """
+                }
+            }
+            post {
+                always {
+                    // Archiva el reporte para su consulta posterior
+                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
                 }
             }
         }
