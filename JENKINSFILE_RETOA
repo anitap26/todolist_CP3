@@ -155,7 +155,8 @@ pipeline {
                 script {
                     echo "Actualizando la rama master..."
                     sh "git checkout master"
-                    sh "git pull origin master"
+                    sh "git fetch origin master"
+                    sh "git merge origin/master"
                     echo "Fusionando develop en master..."
                     sh "git merge develop"
                     echo "Empujando cambios a GitHub..."
