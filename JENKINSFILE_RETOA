@@ -154,12 +154,10 @@ pipeline {
                 script {
                     echo "Actualizando la rama master..."
                     sh "git checkout master"
-                    // Aseguramos que el repositorio local se sincronice con el remoto
-                    sh "git pull origin master"
+                    sh "git pull origin master"  // Realiza un pull normal (merge) sin --rebase
                     echo "Fusionando develop en master..."
                     sh "git merge develop"
                     echo "Empujando cambios a GitHub..."
-                    // Usamos un bloque con triple comillas simples para evitar interpolación insegura del secreto
                     withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh '''#!/bin/bash
                         git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
