@@ -109,7 +109,6 @@ pipeline {
                     if (!env.API_URL) {
                         error("No se pudo obtener la URL de la API. Fallando el pipeline.")
                     }
-                    // Interpolamos la variable apiBaseUrl sin escapar
                     def apiBaseUrl = env.API_URL.endsWith("/") ? env.API_URL.dropRight(1) : env.API_URL
                     sh """
                         mkdir -p reports
