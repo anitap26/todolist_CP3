@@ -17,6 +17,13 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    // Imprimir información del entorno
+                    sh '''
+                        echo "== Get Code =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     if (!fileExists('.git')) {
                         sh "git clone ${REPO_URL} ."
                         sh "git checkout develop"
@@ -32,6 +39,12 @@ pipeline {
             agent { label 'static' }
             steps {
                 script {
+                    sh '''
+                        echo "== Static Test =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     sh """
                         pip install flake8 bandit
                         export PATH=\$PATH:\$HOME/.local/bin
@@ -56,6 +69,12 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    sh '''
+                        echo "== Generate Unique Table Name =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     echo "Generando nombre único para la tabla DynamoDB..."
                     def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
                     env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
@@ -68,6 +87,12 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    sh '''
+                        echo "== Deploy =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
@@ -95,6 +120,12 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    sh '''
+                        echo "== Get API URL =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     echo 'Obteniendo URL de la API desplegada...'
                     def apiUrl = sh(script: """
                         aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
@@ -103,10 +134,9 @@ pipeline {
                     """, returnStdout: true).trim()
                     
                     if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
+                        error("No se pudo obtener la URL de la API desde CloudFormation.")
                     }
                     echo "API URL obtenida: ${apiUrl}"
-                    // Guardamos la URL en un archivo y la stasheamos para usarla en otra etapa
                     writeFile file: 'api_url.txt', text: apiUrl
                     stash includes: 'api_url.txt', name: 'apiUrlStash'
                 }
@@ -117,6 +147,12 @@ pipeline {
             agent { label 'rest' }
             steps {
                 script {
+                    sh '''
+                        echo "== Rest Test =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     unstash 'apiUrlStash'
                     def apiBaseUrl = readFile('api_url.txt').trim()
                     echo "Ejecutando pruebas REST en: ${apiBaseUrl}"
@@ -163,6 +199,12 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    sh '''
+                        echo "== Promote =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     echo "Actualizando la rama master..."
                     sh "git checkout master"
                     sh "git fetch origin master"
