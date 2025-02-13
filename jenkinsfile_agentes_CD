@@ -1,0 +1,122 @@
+pipeline {
+    agent none
+
+    environment {
+        AWS_REGION          = 'us-east-1'
+        APP_NAME            = 'todolist'
+        REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
+        STACK_NAME          = 'todolist-production'
+        S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
+        TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
+        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'
+    }
+
+    stages {
+
+        stage('Get Code') {
+            // Corre en el nodo con etiqueta 'principal'
+            agent { label 'principal' }
+            steps {
+                script {
+                    sh '''
+                        echo "== Get Code =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    echo "Descargando el código de la rama master..."
+                    if (!fileExists('.git')) {
+                        echo "No se encontró repositorio git. Clonando..."
+                        sh "git clone ${REPO_URL} ."
+                        sh "git checkout master"
+                    } else {
+                        echo "Repositorio encontrado. Actualizando rama master..."
+                        sh "git checkout master"
+                        sh "git pull origin master"
+                    }
+                }
+            }
+        }
+
+        stage('Deploy') {
+            // Corre en el nodo con etiqueta 'principal'
+            agent { label 'principal' }
+            steps {
+                script {
+                    sh '''
+                        echo "== Deploy =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    echo "Desplegando la aplicación en producción..."
+                    sh """
+                        echo "Instalando dependencias..."
+                        pip install aws-sam-cli
+                        echo "Verificando SAM CLI..."
+                        sam --version
+                        echo "Construyendo la aplicación con SAM..."
+                        sam build
+                        echo "Validando la plantilla de SAM..."
+                        sam validate --region ${AWS_REGION}
+                        echo "Desplegando en Production..."
+                        sam deploy --stack-name ${STACK_NAME} \\
+                                   --s3-bucket ${S3_BUCKET} \\
+                                   --s3-prefix todo-list-aws \\
+                                   --template-file ${TEMPLATE_FILE} \\
+                                   --region ${AWS_REGION} \\
+                                   --no-confirm-changeset \\
+                                   --capabilities CAPABILITY_IAM \\
+                                   --parameter-overrides Stage=production DynamoDbTableName=${DYNAMODB_TABLE_NAME} || true
+                    """
+                }
+            }
+        }
+
+        stage('Rest Test') {
+            // Corre en el nodo con etiqueta 'rest'
+            agent { label 'rest' }
+            steps {
+                script {
+                    sh '''
+                        echo "== Rest Test =="
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    echo "Obteniendo la URL de la API de producción..."
+                    def apiUrl = sh(script: """
+                        aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
+                        --query "Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue" \\
+                        --output text --region ${AWS_REGION}
+                    """, returnStdout: true).trim()
+                    
+                    if (!apiUrl || apiUrl == "None") {
+                        error("No se pudo obtener la URL de la API de producción.")
+                    }
+                    echo "API URL obtenida: ${apiUrl}"
+                    
+                    // Genera un reporte de las pruebas REST de solo lectura
+                    sh """
+                        mkdir -p reports
+                        echo "Ejecutando pruebas REST de solo lectura en ${apiUrl}..." > reports/rest_test_report.txt
+                        echo "1) GET /todos" >> reports/rest_test_report.txt
+                        response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiUrl}/todos)
+                        echo "Código de respuesta GET /todos: \$response" >> reports/rest_test_report.txt
+                        if [ "\$response" -ne 200 ]; then 
+                            echo "Error en GET /todos" >> reports/rest_test_report.txt
+                            exit 1
+                        fi
+                        echo "Pruebas REST de solo lectura completadas correctamente." >> reports/rest_test_report.txt
+                        cat reports/rest_test_report.txt
+                    """
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
+                }
+            }
+        }
+    }
+}
