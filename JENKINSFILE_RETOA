@@ -16,6 +16,7 @@ pipeline {
         stage('Get Code') {
             steps {
                 script {
+                    echo "Descargando el código de la rama develop..."
                     if (!fileExists('.git')) {
                         sh "git clone ${REPO_URL} ."
                         sh "git checkout develop"
@@ -30,7 +31,6 @@ pipeline {
         stage('Static Test') {
             steps {
                 script {
-                    // Instalar Flake8 y Bandit y actualizar el PATH para encontrarlos
                     sh """
                         pip install flake8 bandit
                         export PATH=\$PATH:\$HOME/.local/bin
@@ -40,7 +40,6 @@ pipeline {
                         touch reports/dummy.txt
                     """
                     sh "ls -la reports/"
-                    // Imprimir el contenido de los reportes para evidenciar la ejecución
                     sh "echo 'Contenido de flake8_report.txt:'; cat reports/flake8_report.txt || true"
                     sh "echo 'Contenido de bandit_report.json:'; cat reports/bandit_report.json || true"
                 }
@@ -94,6 +93,7 @@ pipeline {
                 script {
                     echo 'Obteniendo URL de la API desplegada...'
                     def apiUrl = sh(script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}", returnStdout: true).trim()
+                    
                     if (!apiUrl || apiUrl == "None") {
                         error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
                     }
@@ -110,22 +110,49 @@ pipeline {
                         error("No se pudo obtener la URL de la API. Fallando el pipeline.")
                     }
                     def apiBaseUrl = env.API_URL.endsWith("/") ? env.API_URL.dropRight(1) : env.API_URL
+                    echo "Ejecutando pruebas REST en: ${apiBaseUrl}"
                     sh """
                         mkdir -p reports
                         echo "Ejecutando pruebas REST en ${apiBaseUrl}..." > reports/rest_test_report.txt
+
+                        # 1) GET /todos: Guardar salida real en actual_output.txt
                         echo "1) GET /todos" >> reports/rest_test_report.txt
+                        curl -s ${apiBaseUrl}/todos > actual_output.txt
                         response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiBaseUrl}/todos)
                         echo "Código de respuesta GET /todos: \$response" >> reports/rest_test_report.txt
-                        if [ "\$response" -ne 200 ]; then echo "Error en GET /todos" >> reports/rest_test_report.txt; exit 1; fi
+                        if [ "\$response" -ne 200 ]; then 
+                            echo "Error en GET /todos" >> reports/rest_test_report.txt
+                            exit 1
+                        fi
+                        echo "Contenido real de GET /todos:" >> reports/rest_test_report.txt
+                        cat actual_output.txt >> reports/rest_test_report.txt
+
+                        # 2) Comparación con el resultado esperado (expected_output.txt debe existir)
+                        echo "Comparando salida real con la esperada..." >> reports/rest_test_report.txt
+                        diff expected_output.txt actual_output.txt > diff_report.txt || true
+                        if [ -s diff_report.txt ]; then
+                            echo "Diferencias encontradas:" >> reports/rest_test_report.txt
+                            cat diff_report.txt >> reports/rest_test_report.txt
+                            echo "La salida no coincide con lo esperado." >> reports/rest_test_report.txt
+                            exit 1
+                        else
+                            echo "No hay diferencias: la salida coincide con lo esperado." >> reports/rest_test_report.txt
+                        fi
+
+                        # 3) POST /todos
                         echo "2) POST /todos" >> reports/rest_test_report.txt
                         TODO_RESPONSE=\$(curl -s -X POST ${apiBaseUrl}/todos -H "Content-Type: application/json" -d '{"text": "Test TODO"}')
                         echo "Salida POST /todos: \$TODO_RESPONSE" >> reports/rest_test_report.txt
                         TODO_ID=\$(echo \$TODO_RESPONSE | jq -r '.body | fromjson | .id')
                         echo "ID del TODO creado: \$TODO_ID" >> reports/rest_test_report.txt
+
+                        # 4) GET /todos/\$TODO_ID
                         echo "3) GET /todos/\$TODO_ID" >> reports/rest_test_report.txt
                         response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiBaseUrl}/todos/\$TODO_ID)
                         echo "Código de respuesta GET /todos/\$TODO_ID: \$response" >> reports/rest_test_report.txt
                         if [ "\$response" -ne 200 ]; then echo "Error en GET /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
+
+                        # 5) PUT /todos/\$TODO_ID
                         echo "4) PUT /todos/\$TODO_ID" >> reports/rest_test_report.txt
                         PUT_RESPONSE=\$(curl -s -w "HTTPSTATUS:%{http_code}" -X PUT ${apiBaseUrl}/todos/\$TODO_ID/ -H "Content-Type: application/json" -d '{"text": "Updated TODO", "checked": false}')
                         PUT_BODY=\$(echo \$PUT_RESPONSE | sed -e 's/HTTPSTATUS:.*//g')
@@ -133,10 +160,13 @@ pipeline {
                         echo "PUT status: \$PUT_STATUS" >> reports/rest_test_report.txt
                         echo "PUT body: \$PUT_BODY" >> reports/rest_test_report.txt
                         if [ "\$PUT_STATUS" -ne 200 ]; then echo "Error en PUT /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
+
+                        # 6) DELETE /todos/\$TODO_ID
                         echo "5) DELETE /todos/\$TODO_ID" >> reports/rest_test_report.txt
                         response=\$(curl -s -o /dev/null -w "%{http_code}" -X DELETE ${apiBaseUrl}/todos/\$TODO_ID)
                         echo "Código de respuesta DELETE: \$response" >> reports/rest_test_report.txt
                         if [ "\$response" -ne 200 ]; then echo "Error en DELETE /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
+
                         echo "Todas las pruebas REST pasaron correctamente." >> reports/rest_test_report.txt
                         cat reports/rest_test_report.txt
                     """
@@ -144,7 +174,7 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
+                    archiveArtifacts artifacts: 'reports/rest_test_report.txt, actual_output.txt, diff_report.txt', fingerprint: true
                 }
             }
         }
