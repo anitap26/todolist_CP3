@@ -29,60 +29,12 @@ pipeline {
                     if (!fileExists('.git')) {
                         echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
-                        sh "git checkout develop"
+                        sh "git checkout master"
                     } else {
-                        echo "Repositorio encontrado. Actualizando rama develop..."
-                        sh "git checkout develop"
-                        sh "git pull origin develop"
+                        echo "Repositorio encontrado. Actualizando rama master..."
+                        sh "git checkout master"
+                        sh "git pull origin master"
                     }
-                }
-            }
-        }
-
-        stage('Static Test') {
-            agent { label 'static' }
-            steps {
-                script {
-                    sh '''
-                        echo "== Static Test =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    sh """
-                        pip install flake8 bandit
-                        export PATH=\$PATH:\$HOME/.local/bin
-                        mkdir -p reports
-                        flake8 src --output-file=reports/flake8_report.txt || true
-                        bandit -r src -f json -o reports/bandit_report.json || true
-                        touch reports/dummy.txt
-                    """
-                    sh "ls -la reports/"
-                    sh "echo 'Contenido de flake8_report.txt:'; cat reports/flake8_report.txt || true"
-                    sh "echo 'Contenido de bandit_report.json:'; cat reports/bandit_report.json || true"
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: '**/reports/*', fingerprint: true
-                }
-            }
-        }
-
-        stage('Generate Unique Table Name') {
-            agent { label 'principal' }
-            steps {
-                script {
-                    sh '''
-                        echo "== Generate Unique Table Name =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    echo "Generando nombre único para la tabla DynamoDB..."
-                    def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
-                    env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
-                    echo "Nombre de tabla generado: ${env.DYNAMODB_TABLE_NAME}"
                 }
             }
         }
@@ -91,6 +43,7 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    echo "Desplegando la aplicación en producción..."
                     sh '''
                         echo "== Deploy =="
                         echo "Usuario: $(whoami)"
@@ -138,7 +91,7 @@ pipeline {
                     """, returnStdout: true).trim()
                     
                     if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API desde CloudFormation.")
+                        error("No se pudo obtener la URL de la API de producción.")
                     }
                     echo "API URL obtenida: ${apiUrl}"
                     writeFile file: 'api_url.txt', text: apiUrl
