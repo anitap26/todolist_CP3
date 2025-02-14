@@ -1,5 +1,5 @@
 pipeline {
-    agent none
+    agent any
 
     environment {
         AWS_REGION          = 'us-east-1'
@@ -19,70 +19,16 @@ pipeline {
             steps {
                 script {
                     echo "Descargando el código de la rama master..."
-                    // Imprimir información del entorno
-                    sh '''
-                        echo "== Get Code =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
+                    // Si no existe el repositorio en el workspace, clónalo; de lo contrario, actualízalo.
                     if (!fileExists('.git')) {
                         echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
-                        sh "git checkout develop"
+                        sh "git checkout master"
                     } else {
-                        echo "Repositorio encontrado. Actualizando rama develop..."
-                        sh "git checkout develop"
-                        sh "git pull origin develop"
+                        echo "Repositorio encontrado. Actualizando rama master..."
+                        sh "git checkout master"
+                        sh "git pull origin master"
                     }
-                }
-            }
-        }
-
-        stage('Static Test') {
-            agent { label 'static' }
-            steps {
-                script {
-                    sh '''
-                        echo "== Static Test =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    sh """
-                        pip install flake8 bandit
-                        export PATH=\$PATH:\$HOME/.local/bin
-                        mkdir -p reports
-                        flake8 src --output-file=reports/flake8_report.txt || true
-                        bandit -r src -f json -o reports/bandit_report.json || true
-                        touch reports/dummy.txt
-                    """
-                    sh "ls -la reports/"
-                    sh "echo 'Contenido de flake8_report.txt:'; cat reports/flake8_report.txt || true"
-                    sh "echo 'Contenido de bandit_report.json:'; cat reports/bandit_report.json || true"
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: '**/reports/*', fingerprint: true
-                }
-            }
-        }
-
-        stage('Generate Unique Table Name') {
-            agent { label 'principal' }
-            steps {
-                script {
-                    sh '''
-                        echo "== Generate Unique Table Name =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    echo "Generando nombre único para la tabla DynamoDB..."
-                    def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
-                    env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
-                    echo "Nombre de tabla generado: ${env.DYNAMODB_TABLE_NAME}"
                 }
             }
         }
@@ -91,21 +37,20 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Deploy =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
+                    echo "Desplegando la aplicación en producción..."
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
+
                         echo "Verificando SAM CLI..."
                         sam --version
+
                         echo "Construyendo la aplicación con SAM..."
                         sam build
+
                         echo "Validando la plantilla de SAM..."
                         sam validate --region ${AWS_REGION}
+
                         echo "Desplegando en Production..."
                         sam deploy --stack-name ${STACK_NAME} \\
                                    --s3-bucket ${S3_BUCKET} \\
@@ -124,12 +69,6 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Get API URL =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     echo 'Obteniendo URL de la API desplegada...'
                     def apiUrl = sh(script: """
                         aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
@@ -138,7 +77,7 @@ pipeline {
                     """, returnStdout: true).trim()
                     
                     if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API desde CloudFormation.")
+                        error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
                     }
                     echo "API URL obtenida: ${apiUrl}"
                     writeFile file: 'api_url.txt', text: apiUrl
@@ -151,18 +90,16 @@ pipeline {
             agent { label 'rest' }
             steps {
                 script {
-                    sh '''
-                        echo "== Rest Test =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
+                    echo "== Rest Test =="
+                    // Desempaqueta la URL de la API
                     unstash 'apiUrlStash'
                     def apiBaseUrl = readFile('api_url.txt').trim()
                     echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${apiBaseUrl}"
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
+                        # Instala pytest y requests (si no están instalados)
+                        pip install pytest requests
                         BASE_URL=${apiBaseUrl} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
@@ -178,16 +115,13 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    echo "Actualizando la rama master..."
                     sh '''
                         echo "== Promote =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
+                        git checkout master
+                        git fetch origin master
+                        git merge origin/master
                     '''
-                    echo "Actualizando la rama master..."
-                    sh "git checkout master"
-                    sh "git fetch origin master"
-                    sh "git merge origin/master"
                     echo "Fusionando develop en master..."
                     sh "git merge develop"
                     echo "Empujando cambios a GitHub..."
