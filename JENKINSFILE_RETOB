@@ -63,10 +63,10 @@ pipeline {
             }
         }
 
-        stage('Get API URL') {
+        stage('Rest Test') {
             steps {
                 script {
-                    echo 'Obteniendo URL de la API de producción...'
+                    echo "Obteniendo la URL de la API de producción..."
                     // Extrae la URL Base de la API desde los outputs de CloudFormation
                     def apiUrl = sh(
                         script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}",
@@ -78,21 +78,12 @@ pipeline {
                     }
                     echo "API URL obtenida: ${apiUrl}"
                     env.API_URL = apiUrl
-                }
-            }
-        }
 
-        stage('Pytest Rest Test') {
-            steps {
-                script {
-                    if (!env.API_URL) {
-                        error("No se pudo obtener la URL de la API. Fallando el pipeline.")
-                    }
+                    // Ejecuta las pruebas REST mediante Pytest
                     echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}"
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        # Inyectamos la variable BASE_URL para que todoapitest.py la use
                         BASE_URL=${env.API_URL} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
@@ -100,25 +91,6 @@ pipeline {
             post {
                 always {
                     archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
-                }
-            }
-        }
-
-        stage('Promote') {
-            steps {
-                script {
-                    echo "Actualizando la rama master..."
-                    sh "git checkout master"
-                    sh "git fetch origin master"
-                    sh "git merge origin/master"
-                    echo "Fusionando develop en master..."
-                    sh "git merge develop"
-                    echo "Empujando cambios a GitHub..."
-                    withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-                        sh '''#!/bin/bash
-                        git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
-                        '''
-                    }
                 }
             }
         }
