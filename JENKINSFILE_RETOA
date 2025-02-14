@@ -111,11 +111,11 @@ pipeline {
                     }
                     echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}"
                     sh """
-                        pip install pytest requests
+                        # Aseguramos que el directorio donde se instaló pytest esté en PATH
+                        export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        # Inyectamos la URL de la API en la variable BASE_URL para los tests
-                        export BASE_URL=${env.API_URL}
-                        pytest -v todoapitest.py --junitxml=reports/pytest_report.xml || exit 1
+                        # Ejecutar Pytest; se asume que todoapitest.py está en el root o en una ruta conocida
+                        BASE_URL=${env.API_URL} pytest -v todoapitest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
             }
