@@ -1,5 +1,5 @@
 pipeline {
-    agent none
+    agent any
 
     environment {
         AWS_REGION          = 'us-east-1'
@@ -8,45 +8,29 @@ pipeline {
         STACK_NAME          = 'todolist-staging'
         S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
         TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
-        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'
+        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'  // Valor por defecto
     }
 
     stages {
 
         stage('Get Code') {
-            agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Get Code =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    echo "Descargando el código de la rama master..."
+                    echo "Descargando el código de la rama develop..."
                     if (!fileExists('.git')) {
-                        echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
-                        sh "git checkout master"
+                        sh "git checkout develop"
                     } else {
-                        echo "Repositorio encontrado. Actualizando rama master..."
-                        sh "git checkout master"
-                        sh "git pull origin master"
+                        sh "git checkout develop"
+                        sh "git pull origin develop"
                     }
                 }
             }
         }
 
         stage('Static Test') {
-            agent { label 'static' }
             steps {
                 script {
-                    sh '''
-                        echo "== Static Test =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     sh """
                         pip install flake8 bandit
                         export PATH=\$PATH:\$HOME/.local/bin
@@ -68,15 +52,8 @@ pipeline {
         }
 
         stage('Generate Unique Table Name') {
-            agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Generate Unique Table Name =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     echo "Generando nombre único para la tabla DynamoDB..."
                     def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
                     env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
@@ -86,15 +63,8 @@ pipeline {
         }
 
         stage('Deploy') {
-            agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Deploy =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
@@ -119,24 +89,13 @@ pipeline {
         }
 
         stage('Get API URL') {
-            agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Get API URL =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     echo 'Obteniendo URL de la API desplegada...'
-                    def apiUrl = sh(script: """
-                        aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
-                        --query "Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue" \\
-                        --output text --region ${AWS_REGION}
-                    """, returnStdout: true).trim()
+                    def apiUrl = sh(script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}", returnStdout: true).trim()
                     
                     if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API desde CloudFormation.")
+                        error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
                     }
                     echo "API URL obtenida: ${apiUrl}"
                     env.API_URL = apiUrl
@@ -145,15 +104,8 @@ pipeline {
         }
 
         stage('Rest Test') {
-            agent { label 'rest' }
             steps {
                 script {
-                    sh '''
-                        echo "== Rest Test =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     if (!env.API_URL) {
                         error("No se pudo obtener la URL de la API. Fallando el pipeline.")
                     }
@@ -163,7 +115,7 @@ pipeline {
                         mkdir -p reports
                         echo "Ejecutando pruebas REST en ${apiBaseUrl}..." > reports/rest_test_report.txt
 
-                        # 1) GET /todos - Guardamos salida en actual_output.txt
+                        # 1) GET /todos: Guardar salida real en actual_output.txt
                         echo "1) GET /todos" >> reports/rest_test_report.txt
                         curl -s ${apiBaseUrl}/todos > actual_output.txt
                         response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiBaseUrl}/todos)
@@ -175,14 +127,13 @@ pipeline {
                         echo "Contenido real de GET /todos:" >> reports/rest_test_report.txt
                         cat actual_output.txt >> reports/rest_test_report.txt
 
-                        # 2) Comparación con resultado esperado
-                        # Se asume que expected_output.txt está presente en el workspace (o se puede crear aquí)
+                        # 2) Comparación con el resultado esperado (expected_output.txt debe existir)
                         echo "Comparando salida real con la esperada..." >> reports/rest_test_report.txt
                         diff expected_output.txt actual_output.txt > diff_report.txt || true
                         if [ -s diff_report.txt ]; then
                             echo "Diferencias encontradas:" >> reports/rest_test_report.txt
                             cat diff_report.txt >> reports/rest_test_report.txt
-                            echo "La salida no coincide con la esperada." >> reports/rest_test_report.txt
+                            echo "La salida no coincide con lo esperado." >> reports/rest_test_report.txt
                             exit 1
                         else
                             echo "No hay diferencias: la salida coincide con lo esperado." >> reports/rest_test_report.txt
@@ -229,15 +180,8 @@ pipeline {
         }
 
         stage('Promote') {
-            agent { label 'principal' }
             steps {
                 script {
-                    sh '''
-                        echo "== Promote =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
                     echo "Actualizando la rama master..."
                     sh "git checkout master"
                     sh "git fetch origin master"
