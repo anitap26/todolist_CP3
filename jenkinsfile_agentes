@@ -5,7 +5,6 @@ pipeline {
         AWS_REGION          = 'us-east-1'
         APP_NAME            = 'todolist'
         REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
-        // Para producción usamos un nombre de stack distinto
         STACK_NAME          = 'todolist-production'
         S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
         TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
@@ -15,17 +14,17 @@ pipeline {
     stages {
 
         stage('Get Code') {
+            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
-                    echo "Descargando el código de la rama master..."
-                    // Imprimir información del entorno
                     sh '''
                         echo "== Get Code =="
                         echo "Usuario: $(whoami)"
                         echo "Hostname: $(hostname)"
                         echo "Workspace: ${WORKSPACE}"
                     '''
+                    echo "Descargando el código de la rama master..."
                     if (!fileExists('.git')) {
                         echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
@@ -40,16 +39,17 @@ pipeline {
         }
 
         stage('Deploy') {
+            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
-                    echo "Desplegando la aplicación en producción..."
                     sh '''
                         echo "== Deploy =="
                         echo "Usuario: $(whoami)"
                         echo "Hostname: $(hostname)"
                         echo "Workspace: ${WORKSPACE}"
                     '''
+                    echo "Desplegando la aplicación en producción..."
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
@@ -74,6 +74,7 @@ pipeline {
         }
 
         stage('Get API URL') {
+            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
@@ -101,6 +102,7 @@ pipeline {
         }
 
         stage('Rest Test') {
+            // Corre en el nodo con etiqueta 'rest'
             agent { label 'rest' }
             steps {
                 script {
@@ -123,32 +125,6 @@ pipeline {
             post {
                 always {
                     archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
-                }
-            }
-        }
-
-        stage('Promote') {
-            agent { label 'principal' }
-            steps {
-                script {
-                    sh '''
-                        echo "== Promote =="
-                        echo "Usuario: $(whoami)"
-                        echo "Hostname: $(hostname)"
-                        echo "Workspace: ${WORKSPACE}"
-                    '''
-                    echo "Actualizando la rama master..."
-                    sh "git checkout master"
-                    sh "git fetch origin master"
-                    sh "git merge origin/master"
-                    echo "Fusionando develop en master..."
-                    sh "git merge develop"
-                    echo "Empujando cambios a GitHub..."
-                    withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
-                        sh '''#!/bin/bash
-                        git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
-                        '''
-                    }
                 }
             }
         }
