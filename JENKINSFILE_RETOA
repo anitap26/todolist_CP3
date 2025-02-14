@@ -103,78 +103,25 @@ pipeline {
             }
         }
 
-        stage('Rest Test') {
+        stage('Pytest Rest Test') {
             steps {
                 script {
                     if (!env.API_URL) {
                         error("No se pudo obtener la URL de la API. Fallando el pipeline.")
                     }
-                    def apiBaseUrl = env.API_URL.endsWith("/") ? env.API_URL.dropRight(1) : env.API_URL
-                    echo "Ejecutando pruebas REST en: ${apiBaseUrl}"
+                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}"
                     sh """
+                        pip install pytest requests
                         mkdir -p reports
-                        echo "Ejecutando pruebas REST en ${apiBaseUrl}..." > reports/rest_test_report.txt
-
-                        # 1) GET /todos: Guardar salida real en actual_output.txt
-                        echo "1) GET /todos" >> reports/rest_test_report.txt
-                        curl -s ${apiBaseUrl}/todos > actual_output.txt
-                        response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiBaseUrl}/todos)
-                        echo "Código de respuesta GET /todos: \$response" >> reports/rest_test_report.txt
-                        if [ "\$response" -ne 200 ]; then 
-                            echo "Error en GET /todos" >> reports/rest_test_report.txt
-                            exit 1
-                        fi
-                        echo "Contenido real de GET /todos:" >> reports/rest_test_report.txt
-                        cat actual_output.txt >> reports/rest_test_report.txt
-
-                        # 2) Comparación con el resultado esperado (expected_output.txt debe existir)
-                        echo "Comparando salida real con la esperada..." >> reports/rest_test_report.txt
-                        diff expected_output.txt actual_output.txt > diff_report.txt || true
-                        if [ -s diff_report.txt ]; then
-                            echo "Diferencias encontradas:" >> reports/rest_test_report.txt
-                            cat diff_report.txt >> reports/rest_test_report.txt
-                            echo "La salida no coincide con lo esperado." >> reports/rest_test_report.txt
-                            exit 1
-                        else
-                            echo "No hay diferencias: la salida coincide con lo esperado." >> reports/rest_test_report.txt
-                        fi
-
-                        # 3) POST /todos
-                        echo "2) POST /todos" >> reports/rest_test_report.txt
-                        TODO_RESPONSE=\$(curl -s -X POST ${apiBaseUrl}/todos -H "Content-Type: application/json" -d '{"text": "Test TODO"}')
-                        echo "Salida POST /todos: \$TODO_RESPONSE" >> reports/rest_test_report.txt
-                        TODO_ID=\$(echo \$TODO_RESPONSE | jq -r '.body | fromjson | .id')
-                        echo "ID del TODO creado: \$TODO_ID" >> reports/rest_test_report.txt
-
-                        # 4) GET /todos/\$TODO_ID
-                        echo "3) GET /todos/\$TODO_ID" >> reports/rest_test_report.txt
-                        response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiBaseUrl}/todos/\$TODO_ID)
-                        echo "Código de respuesta GET /todos/\$TODO_ID: \$response" >> reports/rest_test_report.txt
-                        if [ "\$response" -ne 200 ]; then echo "Error en GET /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
-
-                        # 5) PUT /todos/\$TODO_ID
-                        echo "4) PUT /todos/\$TODO_ID" >> reports/rest_test_report.txt
-                        PUT_RESPONSE=\$(curl -s -w "HTTPSTATUS:%{http_code}" -X PUT ${apiBaseUrl}/todos/\$TODO_ID/ -H "Content-Type: application/json" -d '{"text": "Updated TODO", "checked": false}')
-                        PUT_BODY=\$(echo \$PUT_RESPONSE | sed -e 's/HTTPSTATUS:.*//g')
-                        PUT_STATUS=\$(echo \$PUT_RESPONSE | tr -d '\n' | sed -e 's/.*HTTPSTATUS://')
-                        echo "PUT status: \$PUT_STATUS" >> reports/rest_test_report.txt
-                        echo "PUT body: \$PUT_BODY" >> reports/rest_test_report.txt
-                        if [ "\$PUT_STATUS" -ne 200 ]; then echo "Error en PUT /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
-
-                        # 6) DELETE /todos/\$TODO_ID
-                        echo "5) DELETE /todos/\$TODO_ID" >> reports/rest_test_report.txt
-                        response=\$(curl -s -o /dev/null -w "%{http_code}" -X DELETE ${apiBaseUrl}/todos/\$TODO_ID)
-                        echo "Código de respuesta DELETE: \$response" >> reports/rest_test_report.txt
-                        if [ "\$response" -ne 200 ]; then echo "Error en DELETE /todos/\$TODO_ID" >> reports/rest_test_report.txt; exit 1; fi
-
-                        echo "Todas las pruebas REST pasaron correctamente." >> reports/rest_test_report.txt
-                        cat reports/rest_test_report.txt
+                        # Inyectamos la URL de la API en la variable BASE_URL para los tests
+                        export BASE_URL=${env.API_URL}
+                        pytest -v todoapitest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'reports/rest_test_report.txt, actual_output.txt, diff_report.txt', fingerprint: true
+                    archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
                 }
             }
         }
