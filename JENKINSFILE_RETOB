@@ -63,10 +63,10 @@ pipeline {
             }
         }
 
-        stage('Rest Test') {
+        stage('Get API URL') {
             steps {
                 script {
-                    echo "Obteniendo la URL de la API de producción..."
+                    echo 'Obteniendo URL de la API de producción...'
                     // Extrae la URL Base de la API desde los outputs de CloudFormation
                     def apiUrl = sh(
                         script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}",
@@ -78,31 +78,47 @@ pipeline {
                     }
                     echo "API URL obtenida: ${apiUrl}"
                     env.API_URL = apiUrl
+                }
+            }
+        }
 
-                    // Genera un reporte de las pruebas REST (solo de lectura)
+        stage('Pytest Rest Test') {
+            steps {
+                script {
+                    if (!env.API_URL) {
+                        error("No se pudo obtener la URL de la API. Fallando el pipeline.")
+                    }
+                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}"
                     sh """
+                        export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        echo "Ejecutando pruebas REST de solo lectura en producción..." > reports/rest_test_report.txt
-
-                        echo "1) GET /todos" >> reports/rest_test_report.txt
-                        response=\$(curl -s -o /dev/null -w "%{http_code}" ${apiUrl}/todos)
-                        echo "Código de respuesta GET /todos: \$response" >> reports/rest_test_report.txt
-                        if [ "\$response" -ne 200 ]; then 
-                            echo "Error en GET /todos" >> reports/rest_test_report.txt
-                            exit 1
-                        fi
-
-                        echo "Pruebas REST de solo lectura completadas correctamente." >> reports/rest_test_report.txt
-
-                        # Imprime el reporte en la consola para evidenciar la ejecución
-                        cat reports/rest_test_report.txt
+                        # Inyectamos la variable BASE_URL para que todoapitest.py la use
+                        BASE_URL=${env.API_URL} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
             }
             post {
                 always {
-                    // Archiva el reporte para su consulta posterior
-                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
+                    archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
+                }
+            }
+        }
+
+        stage('Promote') {
+            steps {
+                script {
+                    echo "Actualizando la rama master..."
+                    sh "git checkout master"
+                    sh "git fetch origin master"
+                    sh "git merge origin/master"
+                    echo "Fusionando develop en master..."
+                    sh "git merge develop"
+                    echo "Empujando cambios a GitHub..."
+                    withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
+                        sh '''#!/bin/bash
+                        git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
+                        '''
+                    }
                 }
             }
         }
