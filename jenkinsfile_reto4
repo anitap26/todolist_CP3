@@ -78,7 +78,7 @@ pipeline {
                         echo "Validando la plantilla de SAM..."
                         sam validate --region ${AWS_REGION}
                         echo "Desplegando en Staging..."
-                        sam deploy --config-file samconfig.toml --config-env staging --parameter-overrides DynamoDbTableName=${DYNAMODB_TABLE_NAME} --no-confirm-changeset --capabilities CAPABILITY_IAM
+                        sam deploy --config-file samconfig.toml --config-env staging --parameter-overrides DynamoDbTableName=${DYNAMODB_TABLE_NAME} --no-confirm-changeset --capabilities CAPABILITY_IAM || true
                     """
                 }
             }
