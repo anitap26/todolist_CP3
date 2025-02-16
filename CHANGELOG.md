@@ -10,13 +10,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 16FEB2025
 Modificación para la ejecución del multibranch pipeline
-
-Comprobacion 16febrero 18:00h
-Nuevo cambio 18:22h
-Hola este es un nuevo cambio
-
-Nuevo cambio
-
-Este es un nuevo cambio y quiero ver que aparece en MASTER
-
-Hola creo que esto ya funciona!
