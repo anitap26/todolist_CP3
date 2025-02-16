@@ -11,3 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 16FEB2025
 Modificación para la ejecución del multibranch pipeline
 
+<<<<<<< HEAD
+=======
+Hola caracola
+>>>>>>> de810bb37edb01c10b6c1d8466bf50457b807106
