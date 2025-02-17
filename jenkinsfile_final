@@ -16,7 +16,7 @@ pipeline {
         stage('Get Code') {
             steps {
                 script {
-                    echo "Descargando el código de la rama develop..."
+                    echo "Descargando código de la rama develop..."
                     if (!fileExists('.git')) {
                         sh "git clone ${REPO_URL} ."
                         sh "git checkout develop"
