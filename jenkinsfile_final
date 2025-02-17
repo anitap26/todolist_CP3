@@ -87,7 +87,7 @@ pipeline {
         stage('Get API URL') {
             steps {
                 script {
-                    echo 'Obteniendo URL de la API desplegada...'
+                    echo 'Obteniendo la URL de la API desplegada...'
                     def apiUrl = sh(
                         script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}",
                         returnStdout: true
