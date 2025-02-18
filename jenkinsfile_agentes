@@ -1,34 +1,82 @@
 pipeline {
-    agent any
+    agent none
 
     environment {
         AWS_REGION          = 'us-east-1'
         APP_NAME            = 'todolist'
         REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
-        // Para producción usamos un nombre de stack distinto
-        STACK_NAME          = 'todolist-production'
+        STACK_NAME          = 'todolist-staging'
         S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
         TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
-        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'
+        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'  // Valor por defecto
     }
 
     stages {
-
         stage('Get Code') {
             agent { label 'principal' }
             steps {
                 script {
-                    echo "Descargando el código de la rama master..."
-                    // Si no existe el repositorio en el workspace, clónalo; de lo contrario, actualízalo.
+                    echo "== Get Code =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     if (!fileExists('.git')) {
-                        echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
-                        sh "git checkout master"
+                        sh "git checkout develop"
                     } else {
-                        echo "Repositorio encontrado. Actualizando rama master..."
-                        sh "git checkout master"
-                        sh "git pull origin master"
+                        sh "git checkout develop"
+                        sh "git pull origin develop"
                     }
+                }
+            }
+        }
+
+        stage('Static Test') {
+            agent { label 'static' }
+            steps {
+                script {
+                    echo "== Static Test =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    sh """
+                        pip install flake8 bandit
+                        export PATH=\$PATH:\$HOME/.local/bin
+                        mkdir -p reports
+                        flake8 src --output-file=reports/flake8_report.txt || true
+                        bandit -r src -f json -o reports/bandit_report.json || true
+                        touch reports/dummy.txt
+                    """
+                    sh "ls -la reports/"
+                    sh "echo 'Contenido de flake8_report.txt:'; cat reports/flake8_report.txt || true"
+                    sh "echo 'Contenido de bandit_report.json:'; cat reports/bandit_report.json || true"
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: '**/reports/*', fingerprint: true
+                }
+            }
+        }
+
+        stage('Generate Unique Table Name') {
+            agent { label 'principal' }
+            steps {
+                script {
+                    echo "== Generate Unique Table Name =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    echo "Generando nombre único para la tabla DynamoDB..."
+                    def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
+                    env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
+                    echo "Nombre de tabla generado: ${env.DYNAMODB_TABLE_NAME}"
                 }
             }
         }
@@ -37,21 +85,22 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
-                    echo "Desplegando la aplicación en producción..."
+                    echo "== Deploy =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
-
                         echo "Verificando SAM CLI..."
                         sam --version
-
                         echo "Construyendo la aplicación con SAM..."
                         sam build
-
                         echo "Validando la plantilla de SAM..."
                         sam validate --region ${AWS_REGION}
-
-                        echo "Desplegando en Production..."
+                        echo "Desplegando en Staging..."
                         sam deploy --stack-name ${STACK_NAME} \\
                                    --s3-bucket ${S3_BUCKET} \\
                                    --s3-prefix todo-list-aws \\
@@ -59,7 +108,7 @@ pipeline {
                                    --region ${AWS_REGION} \\
                                    --no-confirm-changeset \\
                                    --capabilities CAPABILITY_IAM \\
-                                   --parameter-overrides Stage=production DynamoDbTableName=${DYNAMODB_TABLE_NAME} || true
+                                   --parameter-overrides Stage=staging DynamoDbTableName=${DYNAMODB_TABLE_NAME} || true
                     """
                 }
             }
@@ -69,6 +118,12 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
+                    echo "== Get API URL =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     echo 'Obteniendo URL de la API desplegada...'
                     def apiUrl = sh(script: """
                         aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
@@ -91,10 +146,14 @@ pipeline {
             steps {
                 script {
                     echo "== Rest Test =="
-                    // Desempaqueta la URL de la API
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     unstash 'apiUrlStash'
                     def apiBaseUrl = readFile('api_url.txt').trim()
-                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${apiBaseUrl}"
+                    echo "Ejecutando pruebas REST en: ${apiBaseUrl}"
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
@@ -106,7 +165,7 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
+                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
                 }
             }
         }
@@ -115,19 +174,22 @@ pipeline {
             agent { label 'principal' }
             steps {
                 script {
-                    echo "Actualizando la rama master..."
+                    echo "== Promote =="
                     sh '''
-                        echo "== Promote =="
-                        git checkout master
-                        git fetch origin master
-                        git merge origin/master
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
                     '''
+                    echo "Actualizando la rama master..."
+                    sh "git checkout master"
+                    sh "git fetch origin master"
+                    sh "git merge origin/master"
                     echo "Fusionando develop en master..."
                     sh "git merge develop"
                     echo "Empujando cambios a GitHub..."
                     withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh '''#!/bin/bash
-                        git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
+                            git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
                         '''
                     }
                 }
