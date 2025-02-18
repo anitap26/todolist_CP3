@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent none
 
     environment {
         AWS_REGION          = 'us-east-1'
@@ -14,19 +14,16 @@ pipeline {
     stages {
 
         stage('Get Code') {
-            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
+                    echo "== Get Code =="
                     sh '''
-                        echo "== Get Code =="
                         echo "Usuario: $(whoami)"
                         echo "Hostname: $(hostname)"
                         echo "Workspace: ${WORKSPACE}"
                     '''
                     echo "Descargando el código de la rama master..."
-                    echo "Descargando el código de la rama master..."
-                    // Si no existe el repositorio en el workspace, clónalo; de lo contrario, actualízalo.
                     if (!fileExists('.git')) {
                         echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
@@ -41,12 +38,11 @@ pipeline {
         }
 
         stage('Deploy') {
-            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
+                    echo "== Deploy =="
                     sh '''
-                        echo "== Deploy =="
                         echo "Usuario: $(whoami)"
                         echo "Hostname: $(hostname)"
                         echo "Workspace: ${WORKSPACE}"
@@ -80,11 +76,16 @@ pipeline {
         }
 
         stage('Get API URL') {
-            // Corre en el nodo con etiqueta 'principal'
             agent { label 'principal' }
             steps {
                 script {
-                    echo 'Obteniendo URL de la API desplegada...'
+                    echo "== Get API URL =="
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
+                    echo "Obteniendo URL de la API desplegada..."
                     def apiUrl = sh(script: """
                         aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
                         --query "Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue" \\
@@ -92,7 +93,6 @@ pipeline {
                     """, returnStdout: true).trim()
                     
                     if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API de producción.")
                         error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
                     }
                     echo "API URL obtenida: ${apiUrl}"
@@ -103,19 +103,21 @@ pipeline {
         }
 
         stage('Rest Test') {
-            // Corre en el nodo con etiqueta 'rest'
             agent { label 'rest' }
             steps {
                 script {
                     echo "== Rest Test =="
-                    // Desempaqueta la URL de la API
+                    sh '''
+                        echo "Usuario: $(whoami)"
+                        echo "Hostname: $(hostname)"
+                        echo "Workspace: ${WORKSPACE}"
+                    '''
                     unstash 'apiUrlStash'
                     def apiBaseUrl = readFile('api_url.txt').trim()
                     echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${apiBaseUrl}"
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        # Instala pytest y requests (si no están instalados)
                         pip install pytest requests
                         BASE_URL=${apiBaseUrl} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
@@ -127,6 +129,5 @@ pipeline {
                 }
             }
         }
-
     }
 }
