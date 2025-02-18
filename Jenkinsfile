@@ -13,7 +13,11 @@ pipeline {
     }
 
     stages {
-
+        stage('Clean Workspace') {
+            steps {
+                cleanWs()
+            }
+        }
         stage('Get Code') {
             steps {
                 script {
