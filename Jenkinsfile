@@ -5,10 +5,8 @@ pipeline {
         AWS_REGION       = 'us-east-1'
         APP_NAME         = 'todolist'
         REPO_URL         = 'https://github.com/anitap26/todolist_CP3.git'
-        // Stack para staging
         STACK_NAME       = 'todolist-staging'
-        // URL base para descargar el samconfig.toml configurado para staging
-        CONFIG_REPO_BASE = 'https://raw.githubusercontent.com/anitap26/todo-list-aws-config/staging'
+        CONFIG_REPO_BASE = 'https://raw.githubusercontent.com/anitap26/todo-list-aws-config/production'
     }
     stages {
         stage('Clean Workspace') {
@@ -28,7 +26,7 @@ pipeline {
                         sh "git pull origin develop"
                     }
                     
-                    echo "Descargando archivo de configuración samconfig.toml para staging..."
+                    echo "Descargando archivo de configuración samconfig.toml para production..."
                     sh "wget ${CONFIG_REPO_BASE}/samconfig.toml -O samconfig.toml"
                 }
             }
@@ -37,29 +35,19 @@ pipeline {
         stage('Deploy') {
             steps {
                 script {
-                    echo "Desplegando la aplicación en producción..."
                     sh """
                         echo "Instalando dependencias..."
                         pip install aws-sam-cli
-
                         echo "Verificando SAM CLI..."
                         sam --version
-
                         echo "Construyendo la aplicación con SAM..."
                         sam build
-
                         echo "Validando la plantilla de SAM..."
                         sam validate --region ${AWS_REGION}
-
-                        echo "Desplegando en Production..."
-                        sam deploy --stack-name ${STACK_NAME} \\
-                                   --s3-bucket ${S3_BUCKET} \\
-                                   --s3-prefix todo-list-aws \\
-                                   --template-file ${TEMPLATE_FILE} \\
-                                   --region ${AWS_REGION} \\
+                        echo "Desplegando en Staging..."
+                        sam deploy --config-file samconfig.toml --config-env production \\
                                    --no-confirm-changeset \\
-                                   --capabilities CAPABILITY_IAM \\
-                                   --parameter-overrides Stage=production DynamoDbTableName=${DYNAMODB_TABLE_NAME} || true
+                                   --capabilities CAPABILITY_IAM || true
                     """
                 }
             }
