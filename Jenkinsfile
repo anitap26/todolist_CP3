@@ -5,9 +5,7 @@ pipeline {
         AWS_REGION       = 'us-east-1'
         APP_NAME         = 'todolist'
         REPO_URL         = 'https://github.com/anitap26/todolist_CP3.git'
-        // Stack para staging
         STACK_NAME       = 'todolist-staging'
-        // URL base para descargar el samconfig.toml configurado para staging
         CONFIG_REPO_BASE = 'https://raw.githubusercontent.com/anitap26/todo-list-aws-config/staging'
     }
     stages {
@@ -57,16 +55,7 @@ pipeline {
             }
         }
 
-        stage('Generate Unique Table Name') {
-            steps {
-                script {
-                    echo "Generando nombre único para la tabla DynamoDB..."
-                    def uniqueId = sh(script: "echo \$(date +%s) | sha256sum | head -c 8", returnStdout: true).trim()
-                    env.DYNAMODB_TABLE_NAME = "TodosDynamoDbTable${uniqueId}"
-                    echo "Nombre de tabla generado: ${env.DYNAMODB_TABLE_NAME}"
-                }
-            }
-        }
+        
 
         stage('Deploy') {
             steps {
@@ -81,30 +70,10 @@ pipeline {
                         echo "Validando la plantilla de SAM..."
                         sam validate --region ${AWS_REGION}
                         echo "Desplegando en Staging..."
-                        sam deploy --stack-name ${STACK_NAME} \\
-                                   --s3-bucket ${S3_BUCKET} \\
-                                   --s3-prefix todo-list-aws \\
-                                   --template-file ${TEMPLATE_FILE} \\
-                                   --region ${AWS_REGION} \\
+                        sam deploy --config-file samconfig.toml --config-env staging \\
                                    --no-confirm-changeset \\
-                                   --capabilities CAPABILITY_IAM \\
-                                   --parameter-overrides Stage=staging DynamoDbTableName=${DYNAMODB_TABLE_NAME} || true
+                                   --capabilities CAPABILITY_IAM || true
                     """
-                }
-            }
-        }
-
-        stage('Get API URL') {
-            steps {
-                script {
-                    echo 'Obteniendo URL de la API desplegada...'
-                    def apiUrl = sh(script: "aws cloudformation describe-stacks --stack-name ${STACK_NAME} --query \"Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue\" --output text --region ${AWS_REGION}", returnStdout: true).trim()
-                    
-                    if (!apiUrl || apiUrl == "None") {
-                        error("No se pudo obtener la URL de la API desde CloudFormation. Verifica que el API Gateway se haya creado correctamente.")
-                    }
-                    echo "API URL obtenida: ${apiUrl}"
-                    env.API_URL = apiUrl
                 }
             }
         }
@@ -112,14 +81,24 @@ pipeline {
         stage('Pytest Rest Test') {
             steps {
                 script {
-                    if (!env.API_URL) {
-                        error("No se pudo obtener la URL de la API. Fallando el pipeline.")
+                    echo "Obteniendo la URL de la API de staging..."
+                    def apiUrl = sh(script: """
+                        aws cloudformation describe-stacks --stack-name ${STACK_NAME} \\
+                        --query "Stacks[0].Outputs[?OutputKey=='BaseUrlApi'].OutputValue" \\
+                        --output text --region ${AWS_REGION}
+                    """, returnStdout: true).trim()
+                    
+                    if (!apiUrl || apiUrl == "None") {
+                        error("No se pudo obtener la URL de la API de staging.")
                     }
-                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}"
+                    echo "API URL obtenida: ${apiUrl}"
+                    env.API_URL = apiUrl
+
+                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${env.API_URL}..."
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        # Ejecutar pytest apuntando al archivo ubicado en test/integration/todoApiTest.py
+                        pip install pytest requests
                         BASE_URL=${env.API_URL} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
                 }
