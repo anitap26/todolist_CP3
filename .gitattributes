@@ -1,3 +1,4 @@
+jenkinsfile merge=ours
 jenkinsfile_final merge=ours
 CHANGELOG.md merge=ours
 jenkinsfile_agentes merge=ours
