@@ -2,16 +2,14 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION          = 'us-east-1'
-        APP_NAME            = 'todolist'
-        REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
-        // Para producción usamos un nombre de stack distinto
-        STACK_NAME          = 'todolist-production'
-        S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
-        TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
-        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'
+        AWS_REGION       = 'us-east-1'
+        APP_NAME         = 'todolist'
+        REPO_URL         = 'https://github.com/anitap26/todolist_CP3.git'
+        // Stack para staging
+        STACK_NAME       = 'todolist-staging'
+        // URL base para descargar el samconfig.toml configurado para staging
+        CONFIG_REPO_BASE = 'https://raw.githubusercontent.com/anitap26/todo-list-aws-config/staging'
     }
-
     stages {
         stage('Clean Workspace') {
             steps {
@@ -21,17 +19,17 @@ pipeline {
         stage('Get Code') {
             steps {
                 script {
-                    echo "Descargando el código de la rama master..."
-                    // Si no existe el repositorio en el workspace, clónalo; de lo contrario, actualízalo.
+                    echo "Descargando el código de la rama develop..."
                     if (!fileExists('.git')) {
-                        echo "No se encontró repositorio git. Clonando..."
                         sh "git clone ${REPO_URL} ."
-                        sh "git checkout master"
+                        sh "git checkout develop"
                     } else {
-                        echo "Repositorio encontrado. Actualizando rama master..."
-                        sh "git checkout master"
-                        sh "git pull origin master"
+                        sh "git checkout develop"
+                        sh "git pull origin develop"
                     }
+                    
+                    echo "Descargando archivo de configuración samconfig.toml para staging..."
+                    sh "wget ${CONFIG_REPO_BASE}/samconfig.toml -O samconfig.toml"
                 }
             }
         }
