@@ -137,8 +137,7 @@ pipeline {
                 }
             }
         }
-
-        stage('Rest Test') {
+stage('Rest Test') {
             agent { label 'rest' }
             steps {
                 script {
@@ -150,11 +149,10 @@ pipeline {
                     '''
                     unstash 'apiUrlStash'
                     def apiBaseUrl = readFile('api_url.txt').trim()
-                    echo "Ejecutando pruebas REST en: ${apiBaseUrl}"
+                    echo "Ejecutando pruebas REST con Pytest, utilizando BASE_URL=${apiBaseUrl}"
                     sh """
                         export PATH=\$PATH:/var/lib/jenkins/.local/bin
                         mkdir -p reports
-                        # Instala pytest y requests (si no están instalados)
                         pip install pytest requests
                         BASE_URL=${apiBaseUrl} pytest -v test/integration/todoApiTest.py --junitxml=reports/pytest_report.xml || exit 1
                     """
@@ -162,7 +160,7 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'reports/rest_test_report.txt', fingerprint: true
+                    archiveArtifacts artifacts: 'reports/pytest_report.xml', fingerprint: true
                 }
             }
         }
