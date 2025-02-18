@@ -1,23 +1,21 @@
 pipeline {
     agent any
-
+    
     environment {
-        AWS_REGION          = 'us-east-1'
-        APP_NAME            = 'todolist'
-        REPO_URL            = 'https://github.com/anitap26/todolist_CP3.git'
-        STACK_NAME          = 'todolist-staging'
-        S3_BUCKET           = 'aws-sam-cli-managed-default-samclisourcebucket-fnxysdhusbno'
-        TEMPLATE_FILE       = '.aws-sam/build/template.yaml'
-        DYNAMODB_TABLE_NAME = 'TodosDynamoDbTable'  // Valor por defecto
+        AWS_REGION       = 'us-east-1'
+        APP_NAME         = 'todolist'
+        REPO_URL         = 'https://github.com/anitap26/todolist_CP3.git'
+        // Stack para staging
+        STACK_NAME       = 'todolist-staging'
+        // URL base para descargar el samconfig.toml configurado para staging
+        CONFIG_REPO_BASE = 'https://raw.githubusercontent.com/anitap26/todo-list-aws-config/staging'
     }
-
     stages {
         stage('Clean Workspace') {
             steps {
                 cleanWs()
             }
         }
-
         stage('Get Code') {
             steps {
                 script {
@@ -29,6 +27,9 @@ pipeline {
                         sh "git checkout develop"
                         sh "git pull origin develop"
                     }
+                    
+                    echo "Descargando archivo de configuración samconfig.toml para staging..."
+                    sh "wget ${CONFIG_REPO_BASE}/samconfig.toml -O samconfig.toml"
                 }
             }
         }
