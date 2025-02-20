@@ -119,7 +119,7 @@ pipeline {
                     sh "git merge origin/master"
                     echo "Fusionando develop en master..."
                     sh "git merge develop"
-                    echo "Empujando cambios a GitHub..."
+                    echo "Empujando los cambios a GitHub..."
                     withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh '''#!/bin/bash
                         git push https://x-access-token:$GITHUB_TOKEN@github.com/anitap26/todolist_CP3.git master
